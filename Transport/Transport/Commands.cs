@@ -19,6 +19,10 @@ namespace Transport
         /// Sent by the server to the client when a connection request is refused.
         /// </summary>
         ConnectionFailed,
+        /// <summary>
+        /// TODO
+        /// </summary>
+        Disconnected,
     }
 
     public enum ConnectionFailedReason : byte

@@ -12,15 +12,18 @@ namespace Transport
             {
                 return _state;
             }
-            set
+            internal set
             {
                 SetState(value);
             }
         }
         public IPEndPoint RemoteEndPoint { get; }
 
-        public int ConnectionAttempts { get; set; }
-        public double LastConnectionAttemptTime { get; set; }
+        public int ConnectionAttempts { get; internal set; }
+        public double LastConnectionAttemptTime { get; internal set; }
+        public double LastReceivedPacketTime { get; internal set; }
+        public double LastSentPacketTime { get; internal set; }
+        public double DisconnectTime { get; internal set; }
 
         private ConnectionState _state;
 
@@ -35,8 +38,15 @@ namespace Transport
             switch (state)
             {
                 case ConnectionState.Connected:
-                case ConnectionState.Connecting:
                     Debug.Assert(State == ConnectionState.Created || State == ConnectionState.Connecting);
+                    break;
+
+                case ConnectionState.Connecting:
+                    Debug.Assert(State == ConnectionState.Created);
+                    break;
+
+                case ConnectionState.Disconnected:
+                    Debug.Assert(State == ConnectionState.Connected);
                     break;
             }
 

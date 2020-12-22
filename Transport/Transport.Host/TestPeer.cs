@@ -8,7 +8,7 @@ namespace Transport.Host
         public const ushort SERVER_PORT = 25000;
         public static IPEndPoint ServerEndPoint;
         private Config _config;
-        public Peer Peer;
+        public Peer? Peer;
 
         public bool IsServer { get; }
         public bool IsClient => !IsServer;
@@ -21,13 +21,18 @@ namespace Transport.Host
         public TestPeer(bool isServer)
         {
             _config = GetConfig(isServer);
-            Peer = new Peer(_config);
             IsServer = isServer;
 
-            if (!IsServer)
+            Peer = new Peer(_config);
+            Peer.OnConnected += OnConnected;
+            if (IsClient)
             {
                 Peer.Connect(ServerEndPoint);
             }
+        }
+
+        private void OnConnected(Connection connection)
+        {
         }
 
         public static Config GetConfig(bool isServer)
@@ -49,7 +54,7 @@ namespace Transport.Host
 
         internal void Update()
         {
-            Peer.Update();
+            Peer?.Update();
         }
     }
 }

@@ -8,7 +8,9 @@ namespace Transport
 {
     public class Peer
     {
-        public event Action<Connection, ConnectionFailedReason> OnConnectionFailed;
+        public event Action<Connection, ConnectionFailedReason>? OnConnectionFailed;
+        public event Action<Connection>? OnConnected;
+        public event Action<Connection, DisconnectReason>? OnDisconnected;
 
         private readonly Socket _socket;
         private readonly Config _config;
@@ -39,6 +41,29 @@ namespace Transport
             // TODO - Implement threading for sending
             // Send()
         }
+        
+        public void Connect(IPEndPoint endPoint)
+        {
+            var connection = CreateConnection(endPoint);
+            connection.State = ConnectionState.Connecting;
+        }
+
+        public void SendUnconnected(EndPoint target, Packet packet)
+        {
+            Log.Info($"[SendUnconnected]: Target {target}, {packet.ToString()}");
+            SendInternal(target, packet.Data.ToArray());
+        }
+
+        public void Send(Connection connection, Packet packet)
+        {
+            Debug.Assert(connection.State < ConnectionState.Disconnected);
+
+            Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
+
+            connection.LastSentPacketTime = _timer.Now;
+            
+            SendInternal(connection.RemoteEndPoint, packet.Data.ToArray());
+        }
 
         private void UpdateConnections()
         {
@@ -58,12 +83,40 @@ namespace Transport
                 case ConnectionState.Connected:
                     UpdateConnected(connection);
                     break;
+                case ConnectionState.Disconnected:
+                    UpdateDisconnected(connection);
+                    break;
+            }
+        }
+
+        private void UpdateDisconnected(Connection connection)
+        {
+            if (connection.DisconnectTime + _config.DisconnectIdleTime < _timer.Now)
+            {
+                RemoveConnection(connection);
             }
         }
 
         private void UpdateConnected(Connection connection)
         {
-            Log.Info("UpdateConnected");
+            if (connection.LastReceivedPacketTime + _config.ConnectionTimeout < _timer.Now)
+            {
+                Log.Info($"[Timeout]: {connection}");
+                DisconnectConnection(connection, DisconnectReason.Timeout);
+            }
+        }
+
+        private void DisconnectConnection(Connection connection, DisconnectReason reason, bool sendToOtherPeer = true)
+        {
+            Log.Info($"[DisconnectConnection]: {connection}, Reason={reason}");
+
+            if (sendToOtherPeer)
+            {
+                Send(connection, Packet.Command(Commands.Disconnected, (byte)reason));
+            }
+            connection.State = ConnectionState.Disconnected;
+            connection.DisconnectTime = _timer.Now;
+            OnDisconnected?.Invoke(connection, reason);
         }
 
         private void UpdateConnecting(Connection connection)
@@ -83,24 +136,6 @@ namespace Transport
             connection.ConnectionAttempts++;
             connection.LastConnectionAttemptTime = _timer.Now;
             Send(connection, Packet.Command(Commands.ConnectionRequest));
-        }
-
-        public void Connect(IPEndPoint endPoint)
-        {
-            var connection = CreateConnection(endPoint);
-            connection.State = ConnectionState.Connecting;
-        }
-
-        public void SendUnconnected(EndPoint target, Packet packet)
-        {
-            Log.Info($"[SendUnconnected]: Target {target}, {packet.ToString()}");
-            SendInternal(target, packet.Data.ToArray());
-        }
-
-        public void Send(Connection connection, Packet packet)
-        {
-            Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
-            SendInternal(connection.RemoteEndPoint, packet.Data.ToArray());
         }
 
         private void SendInternal(EndPoint target, byte[] data)
@@ -135,6 +170,12 @@ namespace Transport
 
         private void HandleConnectedPacket(Connection connection, Packet packet)
         {
+            if (connection.State >= ConnectionState.Disconnected)
+            {
+                return;
+            }
+
+            connection.LastReceivedPacketTime = _timer.Now;
             switch (packet.Type)
             {
                 case PacketType.Command:
@@ -199,10 +240,20 @@ namespace Transport
                     HandleConnectionFailed(connection, packet);
                     break;
 
+                case Commands.Disconnected:
+                    HandleDisconnected(connection, packet);
+                    break;
+
                 default:
                     Log.Warn($"[HandleCommandPacket]: Unkown Command {commandId}");
                     break;
             }
+        }
+
+        private void HandleDisconnected(Connection connection, Packet packet)
+        {
+            var reason = (DisconnectReason)packet.Data[2];
+            DisconnectConnection(connection, reason, false);
         }
 
         private void HandleConnectionFailed(Connection connection, Packet packet)
@@ -231,7 +282,7 @@ namespace Transport
                     break;
                     
                 case ConnectionState.Connecting:
-                    connection.State = ConnectionState.Connected;
+                    SetAsConnected(connection);
                     break;
             }
         }
@@ -241,7 +292,7 @@ namespace Transport
             switch (connection.State)
             {
                 case ConnectionState.Created:
-                    connection.State = ConnectionState.Connected;
+                    SetAsConnected(connection);
                     Send(connection, Packet.Command(Commands.ConnectionAccepted));
                     break;
                 
@@ -257,7 +308,10 @@ namespace Transport
 
         private Connection CreateConnection(IPEndPoint endPoint)
         {
-            var connection = new Connection(endPoint);
+            var connection = new Connection(endPoint)
+            {
+                LastReceivedPacketTime = _timer.Now
+            };
             _connections.Add(endPoint, connection);
             Log.Info($"[CreateConnection] Created {connection}");
             return connection;
@@ -266,12 +320,18 @@ namespace Transport
         private void RemoveConnection(Connection connection)
         {
             Debug.Assert(connection.State != ConnectionState.Removed);
+            Log.Info($"[RemoveConnection]: {connection}");
 
             var removed = _connections.Remove(connection.RemoteEndPoint);
             Debug.Assert(removed);
 
             connection.State = ConnectionState.Removed;
-            Log.Info($"[RemoveConnection]: {connection}");
+        }
+
+        private void SetAsConnected(Connection connection)
+        {
+            connection.State = ConnectionState.Connected;
+            OnConnected?.Invoke(connection);
         }
 
         // TODO: Reuse this buffer

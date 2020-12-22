@@ -6,6 +6,7 @@ namespace Transport
         Connecting,
         Connected,
 
-        Removed = 10,
+        Disconnected = 9,
+        Removed,
     }
 }
