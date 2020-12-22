@@ -13,5 +13,9 @@ namespace Transport
         /// Completly unreliable data
         /// </summary>
         Unreliable,
+        /// <summary>
+        /// Packet used to mantain a connection alive
+        /// </summary>
+        KeepAlive,
     }
 }

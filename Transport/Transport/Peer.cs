@@ -131,6 +131,11 @@ namespace Transport
                 Log.Info($"[Timeout]: {connection}");
                 DisconnectConnection(connection, DisconnectReason.Timeout);
             }
+
+            if (connection.LastSentPacketTime + _config.KeepAliveInterval < _timer.Now)
+            {
+                Send(connection, Packet.KeepAlive());
+            }
         }
 
         private void DisconnectConnection(Connection connection, DisconnectReason reason, bool sendToOtherPeer = true)
@@ -225,6 +230,11 @@ namespace Transport
                     
                 case PacketType.Unreliable:
                     HandleUnreliablePacket(connection, packet);
+                    break;
+
+                case PacketType.KeepAlive:
+                    // Only used to keep connections alive
+                    // Don't need to do anything
                     break;
 
                 default:

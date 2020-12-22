@@ -31,18 +31,19 @@ namespace Transport
         /// <summary>
         /// TODO
         /// </summary>
-        public double ConnectionAttemptInterval { get; } = 0.25;
+        public double ConnectionAttemptInterval { get; init; } = 0.25;
 
         /// <summary>
         /// TODO
         /// </summary>
-        public double ConnectionTimeout { get; } = 5;
+        public double ConnectionTimeout { get; init; } = 5;
 
         /// <summary>
         /// TODO
         /// </summary>
-        public double DisconnectIdleTime { get; } = 2;
-        
+        public double DisconnectIdleTime { get; init; } = 2;
+        public double KeepAliveInterval { get; init; } = 1;
+
         public Config(IPAddress address, ushort port) : this(new IPEndPoint(address, port))
         {
         }

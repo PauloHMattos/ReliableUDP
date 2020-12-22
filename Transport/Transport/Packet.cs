@@ -43,5 +43,11 @@ namespace Transport
             }
             return new Packet(buffer, 0, buffer.Length);
         }
+        
+        public static Packet KeepAlive()
+        {
+            var buffer = new byte[1] { (byte)PacketType.KeepAlive };
+            return new Packet(buffer, 0, buffer.Length);
+        }
     }
 }
