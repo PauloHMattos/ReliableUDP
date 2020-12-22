@@ -22,7 +22,7 @@ namespace Transport.Host
             {
                 foreach (var peer in _peers)
                 {
-                    peer.Peer.Update();
+                    peer.Update();
                 }
                 Thread.Sleep(15);
             }
