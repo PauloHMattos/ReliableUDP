@@ -6,17 +6,28 @@ namespace Transport.Host
     internal class TestPeer
     {
         public const ushort SERVER_PORT = 25000;
+        public static IPEndPoint ServerEndPoint;
         private Config _config;
         public Peer Peer;
 
         public bool IsServer { get; }
         public bool IsClient => !IsServer;
 
+        static TestPeer()
+        {
+            ServerEndPoint = new IPEndPoint(IPAddress.Loopback, SERVER_PORT);
+        }
+        
         public TestPeer(bool isServer)
         {
             _config = GetConfig(isServer);
             Peer = new Peer(_config);
             IsServer = isServer;
+
+            if (!IsServer)
+            {
+                Peer.Connect(ServerEndPoint);
+            }
         }
 
         public static Config GetConfig(bool isServer)
@@ -24,7 +35,7 @@ namespace Transport.Host
             Config config;
             if (isServer)
             {
-                config = new Config(IPAddress.Loopback, SERVER_PORT);
+                config = new Config(ServerEndPoint);
             }
             else
             {
@@ -36,10 +47,6 @@ namespace Transport.Host
         internal void Update()
         {
             Peer.Update();
-            if (IsClient)
-            {
-                Peer.SendUnconnected(new IPEndPoint(IPAddress.Loopback, SERVER_PORT), new byte[4]);
-            }
         }
     }
 }
