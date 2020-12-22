@@ -96,7 +96,7 @@ namespace Transport
 
         public void Send(Connection connection, Packet packet)
         {
-            Log.Info($"[Send]: {connection}, {packet.ToString()}");
+            Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
             _socket.SendTo(packet.Data.ToArray(), connection.RemoteEndPoint);
         }
 
@@ -117,7 +117,7 @@ namespace Transport
             var bytesReceived = _socket.ReceiveFrom(buffer, SocketFlags.None, ref endpoint);
 
             var packet = new Packet(buffer, 0, bytesReceived);
-            Log.Info($"[Received]: [{endpoint}], {packet.ToString()}");
+            Log.Info($"[Received]: From [{endpoint}], {packet.ToString()}");
 
             var ipEndPoint = (IPEndPoint)endpoint;
             if (_connections.TryGetValue(ipEndPoint, out var connection))

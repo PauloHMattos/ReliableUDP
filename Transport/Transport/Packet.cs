@@ -20,7 +20,7 @@ namespace Transport
         {
             if (Type == PacketType.Command)
             {
-                return $"[Packet Type={Type}, Id={(Commands)Data[0]}, Length={Data.Length}]";
+                return $"[Packet Type={Type}, Id={(Commands)Data[1]}, Length={Data.Length}]";
             }
             return $"[Packet Type={Type}, Length={Data.Length}]";
         }
