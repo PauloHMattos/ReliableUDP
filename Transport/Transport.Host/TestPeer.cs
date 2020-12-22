@@ -33,6 +33,10 @@ namespace Transport.Host
 
         private void OnConnected(Connection connection)
         {
+            if (IsClient)
+            {
+                Peer?.Disconnect(connection);
+            }
         }
 
         public static Config GetConfig(bool isServer)

@@ -48,6 +48,17 @@ namespace Transport
             connection.State = ConnectionState.Connecting;
         }
 
+        public void Disconnect(Connection connection)
+        {
+            if (connection.State != ConnectionState.Connected)
+            {
+                Log.Error($"[Disconnect]: Can't disconnect {connection}, state is {connection.State}");
+                return;
+            }
+
+            DisconnectConnection(connection, DisconnectReason.UserRequest);
+        }
+
         public void SendUnconnected(EndPoint target, Packet packet)
         {
             Log.Info($"[SendUnconnected]: Target {target}, {packet.ToString()}");
