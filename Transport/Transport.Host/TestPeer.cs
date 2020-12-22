@@ -35,7 +35,10 @@ namespace Transport.Host
             Config config;
             if (isServer)
             {
-                config = new Config(ServerEndPoint);
+                config = new Config(ServerEndPoint)
+                {
+                    //MaxConnections = 0
+                };
             }
             else
             {

@@ -5,5 +5,7 @@ namespace Transport
         Created = 1,
         Connecting,
         Connected,
+
+        Removed = 10,
     }
 }

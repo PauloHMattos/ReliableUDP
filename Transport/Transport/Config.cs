@@ -15,15 +15,15 @@ namespace Transport
         /// Maximum transmission unit in bytes
         /// UDP + IP Header = 28 bytes
         /// </summary>
-        public int MTU { get; } = 1280 - 28;
+        public int MTU { get; init; } = 1280 - 28;
         /// <summary>
         /// Max connections allowed in the server
         /// </summary>
-        public int MaxConnections { get; } = 10;
+        public int MaxConnections { get; init; } = 10;
         /// <summary>
         /// TODO
         /// </summary>
-        public int MaxConnectionAttempts { get; } = 10;
+        public int MaxConnectionAttempts { get; init; } = 10;
         /// <summary>
         /// TODO
         /// </summary>

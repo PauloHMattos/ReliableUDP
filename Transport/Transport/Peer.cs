@@ -8,6 +8,8 @@ namespace Transport
 {
     public class Peer
     {
+        public event Action<Connection, ConnectionFailedReason> OnConnectionFailed;
+
         private readonly Socket _socket;
         private readonly Config _config;
         private readonly Timer _timer;
@@ -89,22 +91,23 @@ namespace Transport
             connection.State = ConnectionState.Connecting;
         }
 
-        public void SendUnconnected(EndPoint target, byte[] data)
+        public void SendUnconnected(EndPoint target, Packet packet)
         {
-            _socket.SendTo(data, target);
+            Log.Info($"[SendUnconnected]: Target {target}, {packet.ToString()}");
+            SendInternal(target, packet.Data.ToArray());
         }
 
         public void Send(Connection connection, Packet packet)
         {
             Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
-            _socket.SendTo(packet.Data.ToArray(), connection.RemoteEndPoint);
+            SendInternal(connection.RemoteEndPoint, packet.Data.ToArray());
         }
 
-        public void Send(Connection connection, byte[] data)
+        private void SendInternal(EndPoint target, byte[] data)
         {
-            _socket.SendTo(data, connection.RemoteEndPoint);
+            _socket.SendTo(data, target);
         }
-        
+
         private void Receive()
         {
             if (!_socket.Poll(0, SelectMode.SelectRead))
@@ -166,13 +169,14 @@ namespace Transport
 
             if (_connections.Count >= _config.MaxConnections)
             {
-                // TODO - Send server is full message as a reply
+                SendUnconnected(endpoint,
+                                Packet.Command(Commands.ConnectionFailed,
+                                               (byte)ConnectionFailedReason.ServerIsFull));
                 return;
             }
 
             // TODO - Try detect DDOS attack?
             var connection = CreateConnection(endpoint);
-
             HandleCommandPacket(connection, packet);
         }
 
@@ -190,7 +194,28 @@ namespace Transport
                 case Commands.ConnectionAccepted:
                     HandleConnectionAccepted(connection, packet);
                     break;
+
+                case Commands.ConnectionFailed:
+                    HandleConnectionFailed(connection, packet);
+                    break;
+
+                default:
+                    Log.Warn($"[HandleCommandPacket]: Unkown Command {commandId}");
+                    break;
             }
+        }
+
+        private void HandleConnectionFailed(Connection connection, Packet packet)
+        {
+            Debug.Assert(connection.State == ConnectionState.Connecting);
+
+            var reason = (ConnectionFailedReason)packet.Data[2];
+            Log.Info($"[ConnectionFailed]: {connection}, Reason={reason}");
+
+            RemoveConnection(connection);
+
+            // Callback to the user code
+            OnConnectionFailed?.Invoke(connection, reason);
         }
 
         private void HandleConnectionAccepted(Connection connection, Packet packet)
@@ -236,6 +261,17 @@ namespace Transport
             _connections.Add(endPoint, connection);
             Log.Info($"[CreateConnection] Created {connection}");
             return connection;
+        }
+
+        private void RemoveConnection(Connection connection)
+        {
+            Debug.Assert(connection.State != ConnectionState.Removed);
+
+            var removed = _connections.Remove(connection.RemoteEndPoint);
+            Debug.Assert(removed);
+
+            connection.State = ConnectionState.Removed;
+            Log.Info($"[RemoveConnection]: {connection}");
         }
 
         // TODO: Reuse this buffer
