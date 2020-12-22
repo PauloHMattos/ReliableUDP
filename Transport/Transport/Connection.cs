@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net;
+using Transport.Notify;
+using Transport.Collections;
 
 namespace Transport
 {
@@ -25,12 +27,21 @@ namespace Transport
         public double LastSentPacketTime { get; internal set; }
         public double DisconnectTime { get; internal set; }
 
+        // Notify algorithm fields
+        public Sequencer SendSequencer { get; }
+        public RingBuffer<SendEnvelope> SendWindow { get; }
+        public ulong LastReceivedSequence { get; internal set; }
+        public ulong ReceiveMask { get; internal set; }
+
         private ConnectionState _state;
 
-        public Connection(IPEndPoint remoteEndPoint)
+        public Connection(Config config, IPEndPoint remoteEndPoint)
         {
             _state = ConnectionState.Created;
             RemoteEndPoint = remoteEndPoint;
+
+            SendSequencer = new Sequencer(config.SequenceNumberBytes);
+            SendWindow = new RingBuffer<SendEnvelope>(config.SendWindowSize);
         }
 
         private void SetState(ConnectionState state)

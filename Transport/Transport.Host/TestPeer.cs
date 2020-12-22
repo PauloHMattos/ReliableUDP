@@ -44,7 +44,7 @@ namespace Transport.Host
             Debug.Assert(Peer != null);
             if (IsClient)
             {
-                Peer.SendUnreliable(connection, BitConverter.GetBytes(uint.MaxValue));
+                Peer.SendNotify(connection, BitConverter.GetBytes(uint.MaxValue), null);
                 // Peer.Disconnect(connection);
             }
         }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Transport.Notify;
 
 namespace Transport
 {
@@ -85,7 +86,47 @@ namespace Transport
             SendInternal(connection.RemoteEndPoint, buffer, data.Length + 1);
         }
 
-        public void Send(Connection connection, Packet packet)
+        public bool SendNotify(Connection connection, byte[] data, object? userObject)
+        {
+            if (connection.SendWindow.IsFull)
+            {
+                return false;
+            }
+
+            var headerSize = 1 + (2 * _config.SequenceNumberBytes) + sizeof(ulong);
+
+            if (data.Length > (_config.MTU - headerSize))
+            {
+                Log.Error($"[SendNotify]: Data too large, above MTU-Header_Size({headerSize}) {data.Length}");
+                return false;
+            }
+
+            var sequenceNumberForPacket = connection.SendSequencer.Next();
+
+            var buffer = GetMtuBuffer();
+            Buffer.BlockCopy(data, 0, buffer, headerSize, data.Length);
+
+            // Fill header data
+            buffer[0] = (byte)PacketType.Notify;
+            var offset = 1;
+            ByteUtils.WriteULong(buffer, offset, _config.SequenceNumberBytes, sequenceNumberForPacket);
+            offset += _config.SequenceNumberBytes;
+            ByteUtils.WriteULong(buffer, offset, _config.SequenceNumberBytes, connection.LastReceivedSequence);
+            offset += _config.SequenceNumberBytes;
+            ByteUtils.WriteULong(buffer, offset, sizeof(ulong), connection.ReceiveMask);
+
+            connection.SendWindow.Push(new SendEnvelope()
+            {
+                Sequence = sequenceNumberForPacket,
+                Time = _timer.Now,
+                UserData = userObject
+            });
+
+            SendInternal(connection, buffer, headerSize + data.Length);
+            return true;
+        }
+
+        public void SendPacket(Connection connection, Packet packet)
         {
             Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
 
@@ -134,7 +175,7 @@ namespace Transport
 
             if (connection.LastSentPacketTime + _config.KeepAliveInterval < _timer.Now)
             {
-                Send(connection, Packet.KeepAlive());
+                SendPacket(connection, Packet.KeepAlive());
             }
         }
 
@@ -144,7 +185,7 @@ namespace Transport
 
             if (sendToOtherPeer)
             {
-                Send(connection, Packet.Command(Commands.Disconnected, (byte)reason));
+                SendPacket(connection, Packet.Command(Commands.Disconnected, (byte)reason));
             }
             connection.State = ConnectionState.Disconnected;
             connection.DisconnectTime = _timer.Now;
@@ -167,7 +208,7 @@ namespace Transport
 
             connection.ConnectionAttempts++;
             connection.LastConnectionAttemptTime = _timer.Now;
-            Send(connection, Packet.Command(Commands.ConnectionRequest));
+            SendPacket(connection, Packet.Command(Commands.ConnectionRequest));
         }
 
         private void SendInternal(Connection connection, byte[] data, int? length = null)
@@ -235,6 +276,10 @@ namespace Transport
                 case PacketType.KeepAlive:
                     // Only used to keep connections alive
                     // Don't need to do anything
+                    break;
+
+                case PacketType.Notify:
+                    Log.Info("Received notify packet");
                     break;
 
                 default:
@@ -355,11 +400,11 @@ namespace Transport
             {
                 case ConnectionState.Created:
                     SetAsConnected(connection);
-                    Send(connection, Packet.Command(Commands.ConnectionAccepted));
+                    SendPacket(connection, Packet.Command(Commands.ConnectionAccepted));
                     break;
 
                 case ConnectionState.Connected:
-                    Send(connection, Packet.Command(Commands.ConnectionAccepted));
+                    SendPacket(connection, Packet.Command(Commands.ConnectionAccepted));
                     break;
 
                 case ConnectionState.Connecting:
@@ -370,7 +415,7 @@ namespace Transport
 
         private Connection CreateConnection(IPEndPoint endPoint)
         {
-            var connection = new Connection(endPoint)
+            var connection = new Connection(_config, endPoint)
             {
                 LastReceivedPacketTime = _timer.Now
             };

@@ -17,5 +17,6 @@ namespace Transport
         /// Packet used to mantain a connection alive
         /// </summary>
         KeepAlive,
+        Notify,
     }
 }

@@ -43,6 +43,8 @@ namespace Transport
         /// </summary>
         public double DisconnectIdleTime { get; init; } = 2;
         public double KeepAliveInterval { get; init; } = 1;
+        public int SequenceNumberBytes { get; init; } = 2;
+        public int SendWindowSize { get; init; } = 512;
 
         public Config(IPAddress address, ushort port) : this(new IPEndPoint(address, port))
         {
