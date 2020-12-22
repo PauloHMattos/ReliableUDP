@@ -16,6 +16,11 @@ namespace Transport
             Type = (PacketType)Data[0];
         }
 
+        public Packet(ReadOnlySpan<byte> data, int offset, int length) : this()
+        {
+            Data = data.Slice(offset, length);
+        }
+
         public override string ToString()
         {
             if (Type == PacketType.Command)

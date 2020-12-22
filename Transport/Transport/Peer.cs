@@ -8,9 +8,15 @@ namespace Transport
 {
     public class Peer
     {
-        public event Action<Connection, ConnectionFailedReason>? OnConnectionFailed;
-        public event Action<Connection>? OnConnected;
-        public event Action<Connection, DisconnectReason>? OnDisconnected;
+        public delegate void OnConnectionFailedDelegate(Connection connection, ConnectionFailedReason reason);
+        public delegate void OnConnectedDelegate(Connection connection);
+        public delegate void OnDisconnectedDelegate(Connection connection, DisconnectReason reason);
+        public delegate void OnUnreliablePacketDelegate(Connection connection, Packet packet);
+
+        public event OnConnectionFailedDelegate? OnConnectionFailed;
+        public event OnConnectedDelegate? OnConnected;
+        public event OnDisconnectedDelegate? OnDisconnected;
+        public event OnUnreliablePacketDelegate? OnUnreliablePacket;
 
         private readonly Socket _socket;
         private readonly Config _config;
@@ -41,7 +47,7 @@ namespace Transport
             // TODO - Implement threading for sending
             // Send()
         }
-        
+
         public void Connect(IPEndPoint endPoint)
         {
             var connection = CreateConnection(endPoint);
@@ -65,20 +71,30 @@ namespace Transport
             SendInternal(target, packet.Data.ToArray());
         }
 
+        public void SendUnreliable(Connection connection, byte[] data)
+        {
+            if (data.Length > (_config.MTU - 1))
+            {
+                Log.Error($"[SendUnreliable]: Data too large, above MTU-1 {data.Length}");
+                return;
+            }
+
+            var buffer = GetMtuBuffer();
+            Buffer.BlockCopy(data, 0, buffer, 1, data.Length);
+            buffer[0] = (byte)PacketType.Unreliable;
+            SendInternal(connection.RemoteEndPoint, buffer, data.Length + 1);
+        }
+
         public void Send(Connection connection, Packet packet)
         {
-            Debug.Assert(connection.State < ConnectionState.Disconnected);
-
             Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
 
-            connection.LastSentPacketTime = _timer.Now;
-            
-            SendInternal(connection.RemoteEndPoint, packet.Data.ToArray());
+            SendInternal(connection, packet.Data.ToArray());
         }
 
         private void UpdateConnections()
         {
-            foreach(var (_, connection) in _connections)
+            foreach (var (_, connection) in _connections)
             {
                 UpdateConnection(connection);
             }
@@ -149,9 +165,23 @@ namespace Transport
             Send(connection, Packet.Command(Commands.ConnectionRequest));
         }
 
-        private void SendInternal(EndPoint target, byte[] data)
+        private void SendInternal(Connection connection, byte[] data, int? length = null)
         {
-            _socket.SendTo(data, target);
+            Debug.Assert(connection.State < ConnectionState.Disconnected);
+            connection.LastSentPacketTime = _timer.Now;
+            SendInternal(connection.RemoteEndPoint, data, length);
+        }
+
+        private void SendInternal(EndPoint target, byte[] data, int? length = null)
+        {
+            if (length.HasValue)
+            {
+                _socket.SendTo(data, 0, length.Value, SocketFlags.None, target);
+            }
+            else
+            {
+                _socket.SendTo(data, target);
+            }
         }
 
         private void Receive()
@@ -192,10 +222,21 @@ namespace Transport
                 case PacketType.Command:
                     HandleCommandPacket(connection, packet);
                     break;
-                
+                    
+                case PacketType.Unreliable:
+                    HandleUnreliablePacket(connection, packet);
+                    break;
+
                 default:
                     throw new NotImplementedException($"Not implemented for packet type: {packet.Type}");
             }
+        }
+
+        private void HandleUnreliablePacket(Connection connection, Packet packet)
+        {
+            // Remove the unreliable header and pass to the user code
+            var trimedPacket = new Packet(packet.Data, 1, packet.Data.Length - 1);
+            OnUnreliablePacket?.Invoke(connection, trimedPacket);
         }
 
         private void HandleUnconnectedPacket(IPEndPoint endpoint, Packet packet)
@@ -287,11 +328,11 @@ namespace Transport
                 case ConnectionState.Created:
                     Debug.Fail("");
                     break;
-                
+
                 case ConnectionState.Connected:
                     // Already connected, so this is a duplicated packet, ignore
                     break;
-                    
+
                 case ConnectionState.Connecting:
                     SetAsConnected(connection);
                     break;
@@ -306,11 +347,11 @@ namespace Transport
                     SetAsConnected(connection);
                     Send(connection, Packet.Command(Commands.ConnectionAccepted));
                     break;
-                
+
                 case ConnectionState.Connected:
                     Send(connection, Packet.Command(Commands.ConnectionAccepted));
                     break;
-                    
+
                 case ConnectionState.Connecting:
                     Debug.Fail("Cannot be in connecting state while a connection request has been sent");
                     break;

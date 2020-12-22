@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net;
 
 namespace Transport.Host
@@ -7,9 +8,9 @@ namespace Transport.Host
     {
         public const ushort SERVER_PORT = 25000;
         public static IPEndPoint ServerEndPoint;
-        private Config _config;
-        public Peer? Peer;
+        private readonly Config _config;
 
+        public Peer? Peer { get; }
         public bool IsServer { get; }
         public bool IsClient => !IsServer;
 
@@ -17,7 +18,7 @@ namespace Transport.Host
         {
             ServerEndPoint = new IPEndPoint(IPAddress.Loopback, SERVER_PORT);
         }
-        
+
         public TestPeer(bool isServer)
         {
             _config = GetConfig(isServer);
@@ -25,17 +26,26 @@ namespace Transport.Host
 
             Peer = new Peer(_config);
             Peer.OnConnected += OnConnected;
+            Peer.OnUnreliablePacket += OnUnreliablePacket;
             if (IsClient)
             {
                 Peer.Connect(ServerEndPoint);
             }
         }
 
+        private void OnUnreliablePacket(Connection connection, Packet packet)
+        {
+            var value = BitConverter.ToUInt32(packet.Data);
+            Log.Info($"[OnUnreliablePacket]: {value}");
+        }
+
         private void OnConnected(Connection connection)
         {
+            Debug.Assert(Peer != null);
             if (IsClient)
             {
-                Peer?.Disconnect(connection);
+                Peer.SendUnreliable(connection, BitConverter.GetBytes(uint.MaxValue));
+                // Peer.Disconnect(connection);
             }
         }
 
@@ -44,10 +54,7 @@ namespace Transport.Host
             Config config;
             if (isServer)
             {
-                config = new Config(ServerEndPoint)
-                {
-                    //MaxConnections = 0
-                };
+                config = new Config(ServerEndPoint);
             }
             else
             {
