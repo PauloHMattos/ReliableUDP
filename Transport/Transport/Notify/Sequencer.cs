@@ -1,6 +1,6 @@
 namespace Transport.Notify
 {
-    public struct Sequencer
+    public class Sequencer
     {
         // TODO - Implement tests for this code
 
@@ -20,8 +20,7 @@ namespace Transport.Notify
 
         public ulong Next()
         {
-            _sequence = NextAfter(_sequence);
-            return _sequence;
+            return _sequence = NextAfter(_sequence);
         }
 
         public ulong NextAfter(ulong sequence)
@@ -33,7 +32,7 @@ namespace Transport.Notify
         {
             to <<= _shift;
             from <<= _shift;
-            return ((long) (from - to)) >> _shift;
+            return ((long)(from - to)) >> _shift;
         }
     }
 }

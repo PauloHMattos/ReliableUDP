@@ -1,3 +1,5 @@
+using System;
+
 namespace Transport
 {
     public static unsafe class ByteUtils
@@ -6,7 +8,7 @@ namespace Transport
         {
             byte* v = (byte*)&value;
 
-            for (var i = 0; i < bytes; i++)
+            for (var i = 0; i < bytes; ++i)
             {
                 data[offset + i] = v[i];
             }
@@ -17,7 +19,20 @@ namespace Transport
             ulong value = 0;
             byte* v = (byte*)&value;
 
-            for (var i = 0; i < bytes; i++)
+            for (var i = 0; i < bytes; ++i)
+            {
+                v[i] = data[offset + i];
+            }
+
+            return value;
+        }
+
+        public static ulong ReadULong(ReadOnlySpan<byte> data, int offset, int bytes)
+        {
+            ulong value = 0;
+            byte* v = (byte*)&value;
+
+            for (var i = 0; i < bytes; ++i)
             {
                 v[i] = data[offset + i];
             }

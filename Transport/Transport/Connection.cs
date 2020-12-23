@@ -32,6 +32,7 @@ namespace Transport
         public RingBuffer<SendEnvelope> SendWindow { get; }
         public ulong LastReceivedSequence { get; internal set; }
         public ulong ReceiveMask { get; internal set; }
+        public double Rtt { get; internal set; }
 
         private ConnectionState _state;
 

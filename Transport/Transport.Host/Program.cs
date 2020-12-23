@@ -24,7 +24,7 @@ namespace Transport.Host
                 {
                     peer.Update();
                 }
-                Thread.Sleep(15);
+                Thread.Sleep(100);
             }
         }
     }

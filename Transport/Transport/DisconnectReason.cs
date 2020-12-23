@@ -4,5 +4,6 @@ namespace Transport
     {
         Timeout = 1,
         UserRequest,
+        SequenceOutOfBounds,
     }
 }

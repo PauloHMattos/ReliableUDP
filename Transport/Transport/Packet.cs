@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace Transport
 {
@@ -11,12 +12,11 @@ namespace Transport
         public Packet(byte[] data, int offset, int length)
         {
             Debug.Assert(length > 0);
-
             Data = data.AsSpan(offset, length);
             Type = (PacketType)Data[0];
         }
 
-        public Packet(ReadOnlySpan<byte> data, int offset, int length) : this()
+        private Packet(ReadOnlySpan<byte> data, int offset, int length) : this()
         {
             Data = data.Slice(offset, length);
         }
@@ -48,6 +48,18 @@ namespace Transport
         {
             var buffer = new byte[1] { (byte)PacketType.KeepAlive };
             return new Packet(buffer, 0, buffer.Length);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal Packet Slice(int offset)
+        {
+            return Slice(offset, Data.Length - offset);
+        }
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal Packet Slice(int offset, int length)
+        {
+            return new Packet(Data, offset, length);
         }
     }
 }

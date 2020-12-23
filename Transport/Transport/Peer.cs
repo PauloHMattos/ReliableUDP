@@ -13,19 +13,27 @@ namespace Transport
         public delegate void OnConnectedDelegate(Connection connection);
         public delegate void OnDisconnectedDelegate(Connection connection, DisconnectReason reason);
         public delegate void OnUnreliablePacketDelegate(Connection connection, Packet packet);
+        public delegate void OnNotifyPacketDelegate(Connection connection, object? userData);
+        public delegate void OnNotifyPacketDelegate2(Connection connection, Packet packet);
 
         public event OnConnectionFailedDelegate? OnConnectionFailed;
         public event OnConnectedDelegate? OnConnected;
         public event OnDisconnectedDelegate? OnDisconnected;
         public event OnUnreliablePacketDelegate? OnUnreliablePacket;
+        public event OnNotifyPacketDelegate? OnNotifyPacketLost;
+        public event OnNotifyPacketDelegate? OnNotifyPacketDelivered;
+        public event OnNotifyPacketDelegate2? OnNotityPacketReceived;
 
         private readonly Socket _socket;
         private readonly Config _config;
         private readonly Timer _timer;
+        private readonly Random _random;
         private readonly Dictionary<IPEndPoint, Connection> _connections;
 
         public Peer(Config config)
         {
+            _random = new Random(Environment.TickCount);
+
             _config = config;
             _timer = Timer.StartNew();
             _connections = new Dictionary<IPEndPoint, Connection>();
@@ -86,6 +94,8 @@ namespace Transport
             SendInternal(connection.RemoteEndPoint, buffer, data.Length + 1);
         }
 
+        private int NotifyPacketHeaderSize => 1 + (2 * _config.SequenceNumberBytes) + sizeof(ulong);
+
         public bool SendNotify(Connection connection, byte[] data, object? userObject)
         {
             if (connection.SendWindow.IsFull)
@@ -93,18 +103,17 @@ namespace Transport
                 return false;
             }
 
-            var headerSize = 1 + (2 * _config.SequenceNumberBytes) + sizeof(ulong);
 
-            if (data.Length > (_config.MTU - headerSize))
+            if (data.Length > (_config.MTU - NotifyPacketHeaderSize))
             {
-                Log.Error($"[SendNotify]: Data too large, above MTU-Header_Size({headerSize}) {data.Length}");
+                Log.Error($"[SendNotify]: Data too large, above MTU-Header_Size({NotifyPacketHeaderSize}) {data.Length}");
                 return false;
             }
 
             var sequenceNumberForPacket = connection.SendSequencer.Next();
 
             var buffer = GetMtuBuffer();
-            Buffer.BlockCopy(data, 0, buffer, headerSize, data.Length);
+            Buffer.BlockCopy(data, 0, buffer, NotifyPacketHeaderSize, data.Length);
 
             // Fill header data
             buffer[0] = (byte)PacketType.Notify;
@@ -118,17 +127,17 @@ namespace Transport
             connection.SendWindow.Push(new SendEnvelope()
             {
                 Sequence = sequenceNumberForPacket,
-                Time = _timer.Now,
+                SendTime = _timer.Now,
                 UserData = userObject
             });
 
-            SendInternal(connection, buffer, headerSize + data.Length);
+            SendInternal(connection, buffer, NotifyPacketHeaderSize + data.Length);
             return true;
         }
 
         public void SendPacket(Connection connection, Packet packet)
         {
-            Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
+            //Log.Info($"[Send]: Target {connection}, {packet.ToString()}");
 
             SendInternal(connection, packet.Data.ToArray());
         }
@@ -232,26 +241,31 @@ namespace Transport
 
         private void Receive()
         {
-            if (!_socket.Poll(0, SelectMode.SelectRead))
+            while (_socket.Poll(0, SelectMode.SelectRead))
             {
-                return;
-            }
 
-            var buffer = GetMtuBuffer();
-            var endpoint = (EndPoint)new IPEndPoint(IPAddress.Any, 0);
-            var bytesReceived = _socket.ReceiveFrom(buffer, SocketFlags.None, ref endpoint);
+                var buffer = GetMtuBuffer();
+                var endpoint = (EndPoint)new IPEndPoint(IPAddress.Any, 0);
+                var bytesReceived = _socket.ReceiveFrom(buffer, SocketFlags.None, ref endpoint);
 
-            var packet = new Packet(buffer, 0, bytesReceived);
-            Log.Info($"[Received]: From [{endpoint}], {packet.ToString()}");
+                if (_random.NextDouble() <= _config.SimulatedLoss)
+                {
+                    Log.Info($"Simulated loss of {bytesReceived} bytes");
+                    continue;
+                }
 
-            var ipEndPoint = (IPEndPoint)endpoint;
-            if (_connections.TryGetValue(ipEndPoint, out var connection))
-            {
-                HandleConnectedPacket(connection, packet);
-            }
-            else
-            {
-                HandleUnconnectedPacket(ipEndPoint, packet);
+                var packet = new Packet(buffer, 0, bytesReceived);
+                //Log.Info($"[Received]: From [{endpoint}], {packet.ToString()}");
+
+                var ipEndPoint = (IPEndPoint)endpoint;
+                if (_connections.TryGetValue(ipEndPoint, out var connection))
+                {
+                    HandleConnectedPacket(connection, packet);
+                }
+                else
+                {
+                    HandleUnconnectedPacket(ipEndPoint, packet);
+                }
             }
         }
 
@@ -268,7 +282,7 @@ namespace Transport
                 case PacketType.Command:
                     HandleCommandPacket(connection, packet);
                     break;
-                    
+
                 case PacketType.Unreliable:
                     HandleUnreliablePacket(connection, packet);
                     break;
@@ -279,7 +293,7 @@ namespace Transport
                     break;
 
                 case PacketType.Notify:
-                    Log.Info("Received notify packet");
+                    HandleNotifyPacket(connection, packet);
                     break;
 
                 default:
@@ -287,10 +301,98 @@ namespace Transport
             }
         }
 
+        private void HandleNotifyPacket(Connection connection, Packet packet)
+        {
+            if (packet.Data.Length < NotifyPacketHeaderSize)
+            {
+                return;
+            }
+
+            var offset = 1;
+            var packetSequenceNumber = ByteUtils.ReadULong(packet.Data, offset, _config.SequenceNumberBytes);
+            offset += _config.SequenceNumberBytes;
+            var remoteRecvSequence = ByteUtils.ReadULong(packet.Data, offset, _config.SequenceNumberBytes);
+            offset += _config.SequenceNumberBytes;
+            var remoteRecvMask = ByteUtils.ReadULong(packet.Data, offset, sizeof(ulong));
+
+            var sequenceDistance = connection.SendSequencer.Distance(packetSequenceNumber, connection.LastReceivedSequence);
+
+            // Sequence so out of bounds we can't save, just disconnect
+            if (Math.Abs(sequenceDistance) > _config.SendWindowSize)
+            {
+                DisconnectConnection(connection, DisconnectReason.SequenceOutOfBounds);
+                return;
+            }
+
+            // Sequence is old, so duplicate or re-ordered packet
+            if (sequenceDistance <= 0)
+            {
+                return;
+            }
+
+            // Update recv sequence for ou local connection object
+            connection.LastReceivedSequence = packetSequenceNumber;
+
+            if (sequenceDistance >= ACK_MASK_BITS)
+            {
+                connection.ReceiveMask = 1; // 0000 0000 0000 0000 0000 0000 0000 0001
+            }
+            else
+            {
+                connection.ReceiveMask = (connection.ReceiveMask << (int)sequenceDistance) | 1;
+            }
+
+            AckPackets(connection, remoteRecvSequence, remoteRecvMask);
+
+            // Only a ack packet
+            if (packet.Data.Length == NotifyPacketHeaderSize)
+            {
+                return;
+            }
+
+            var trimedPacket = packet.Slice(NotifyPacketHeaderSize);
+            OnNotityPacketReceived?.Invoke(connection, trimedPacket);
+        }
+
+        const int ACK_MASK_BITS = sizeof(ulong) * 8;
+
+        private void AckPackets(Connection connection, ulong recvSequenceFromRemote, ulong recvMaskFromRemote)
+        {
+            while (connection.SendWindow.Count > 0)
+            {
+                var envelope = connection.SendWindow.Peek();
+                var distance = (int)connection.SendSequencer.Distance(envelope.Sequence, recvSequenceFromRemote);
+
+                if (distance > 0)
+                {
+                    break;
+                }
+
+                // remove envelope from send window
+                connection.SendWindow.Pop();
+
+                // If this is the same as the latest sequence remove received from us, we can use thus to calculate RTT
+                if (distance == 0)
+                {
+                    connection.Rtt = _timer.Now - envelope.SendTime;
+                }
+
+                // If any of this cases trigger, packet is most likely lost
+                if ((distance <= -ACK_MASK_BITS) || ((recvMaskFromRemote & (1UL << -distance)) == 0UL))
+                {
+                    OnNotifyPacketLost?.Invoke(connection, envelope.UserData);
+                }
+                else
+                {
+                    OnNotifyPacketDelivered?.Invoke(connection, envelope.UserData);
+                }
+            }
+        }
+
         private void HandleUnreliablePacket(Connection connection, Packet packet)
         {
             // Remove the unreliable header and pass to the user code
-            var trimedPacket = new Packet(packet.Data, 1, packet.Data.Length - 1);
+            var trimedPacket = packet.Slice(1);
             OnUnreliablePacket?.Invoke(connection, trimedPacket);
         }
 

@@ -45,6 +45,7 @@ namespace Transport
         public double KeepAliveInterval { get; init; } = 1;
         public int SequenceNumberBytes { get; init; } = 2;
         public int SendWindowSize { get; init; } = 512;
+        public float SimulatedLoss { get; init; } = 0.25f;
 
         public Config(IPAddress address, ushort port) : this(new IPEndPoint(address, port))
         {

@@ -16,6 +16,14 @@ namespace Transport.Collections
             _elements = new T[capacity];
         }
 
+        public T Peek()
+        {
+            if (Count == 0)
+            {
+                throw new InvalidOperationException();
+            }
+            return _elements[_tail];
+        }
         public void Push(T item)
         {
             if (IsFull)
@@ -23,16 +31,9 @@ namespace Transport.Collections
                 throw new InvalidOperationException();
             }
 
-            _head = (_head + 1) % _elements.Length;
             _elements[_head] = item;
-            if (Count == _elements.Length)
-            {
-                _tail = (_tail + 1) % _elements.Length;
-            }
-            else
-            {
-                Count++;
-            }
+            _head         =  (_head + 1) % _elements.Length;
+            Count        += 1;
         }
 
         public void Clear()
@@ -42,6 +43,22 @@ namespace Transport.Collections
             Count = 0;
 
             Array.Clear(_elements, 0, _elements.Length);
+        }
+
+        internal T Pop()
+        {
+            if (Count == 0)
+            {
+                throw new InvalidOperationException();
+            }
+
+            var item = _elements[_tail];
+
+            _elements[_tail] = default;
+            _tail = (_tail + 1) % _elements.Length;
+            Count -= 1;
+
+            return item;
         }
     }
 }
